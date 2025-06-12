@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block title %}Главная - NESZEN {% endblock %}
+
+{% block content %}
+<div class="jumbotron text-center">
+    <h1 class="display-4">Добро пожаловать в Чат-Приложение</h1>
+    <hr class="my-4">
+    <p>Используйте навигационную панель для доступа к вашему профилю.</p>
+    {% if user.is_authenticated %}
+    <h2>Привет, {{ username }}!</h2>
+    <a href="{% url 'user_list' %}" class="btn btn-primary">Начать Чат</a>
+    {% endif %}
+</div>
+{% endblock %}

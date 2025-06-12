@@ -1,0 +1,732 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container my-5">
+  <div class="row">
+    <!-- Left Column - User Search -->
+    <div class="col-md-6">
+      <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">Найти пользователей</h5>
+        </div>
+        <div class="card-body">
+          <div class="search-container mb-4">
+            <div class="input-group">
+              <input type="text" class="form-control" id="userSearchInput" placeholder="Поиск по имени пользователя...">
+              <button class="btn btn-primary" id="searchBtn">
+                <i class="fas fa-search"></i>
+              </button>
+            </div>
+          </div>
+          
+          <div id="searchResults" class="user-search-results">
+            <!-- Search results will be displayed here -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Right Column - Friend Management -->
+    <div class="col-md-6">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">Мои друзья</h5>
+        </div>
+        <div class="card-body">
+          <div id="friendsList" class="friends-list">
+            <!-- Friends list will be loaded here -->
+          </div>
+        </div>
+      </div>
+      
+      <div class="card shadow-sm">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">Заявки в друзья</h5>
+        </div>
+        <div class="card-body">
+          <ul class="nav nav-tabs" id="friendRequestsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="incoming-tab" data-bs-toggle="tab" 
+                data-bs-target="#incoming" type="button" role="tab">
+                Входящие <span class="badge bg-danger ms-2" id="incomingBadge"></span>
+              </button>
+            </li>
+          </ul>
+          
+          <div class="tab-content p-3" id="friendRequestsContent">
+            <div class="tab-pane fade show active" id="incoming" role="tabpanel">
+              <div id="incomingRequests" class="friend-requests">
+                <!-- Incoming friend requests will be loaded here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<style>
+  .user-search-results,
+  .friends-list,
+  .friend-requests {
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  
+  .user-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.2s;
+  }
+  
+  .user-item:hover {
+    background-color: #f8f9fa;
+  }
+  
+  .user-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    margin-right: 15px;
+  }
+  
+  .user-info {
+    flex: 1;
+  }
+  
+  .user-info .username {
+    font-weight: 500;
+    margin-bottom: 2px;
+  }
+  
+  .user-info .full-name {
+    font-size: 14px;
+    color: #6c757d;
+  }
+  
+  .user-actions {
+    display: flex;
+    align-items: center;
+  }
+  
+  .no-results,
+  .no-friends,
+  .no-requests {
+    text-align: center;
+    padding: 20px;
+    color: #6c757d;
+  }
+  
+  .no-results i,
+  .no-friends i,
+  .no-requests i {
+    font-size: 2rem;
+    margin-bottom: 10px;
+    opacity: 0.5;
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Functions to fetch data
+    async function searchUsers(query) {
+      try {
+        const response = await fetch(`/chat/search_users/?q=${encodeURIComponent(query)}`);
+        if (!response.ok) throw new Error('Ошибка поиска');
+        return await response.json();
+      } catch (error) {
+        console.error('Error searching users:', error);
+        return { users: [] };
+      }
+    }
+    
+    async function loadFriends() {
+      try {
+        const response = await fetch('/chat/friends/');
+        if (!response.ok) throw new Error('Ошибка загрузки друзей');
+        return await response.json();
+      } catch (error) {
+        console.error('Error loading friends:', error);
+        return { friends: [] };
+      }
+    }
+    
+    async function loadFriendRequests() {
+      try {
+        const response = await fetch('/chat/friend_requests/');
+        if (!response.ok) throw new Error('Ошибка загрузки заявок');
+        return await response.json();
+      } catch (error) {
+        console.error('Error loading friend requests:', error);
+        return { incoming: [], outgoing: [] };
+      }
+    }
+    
+    // Functions to send requests
+    async function sendFriendRequest(username) {
+      try {
+        const response = await fetch('/chat/send_friend_request/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({ username })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error sending friend request:', error);
+        return { success: false, error: 'Произошла ошибка' };
+      }
+    }
+    
+    async function acceptFriendRequest(requestId) {
+      try {
+        const response = await fetch('/chat/accept_friend_request/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({ request_id: requestId })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error accepting friend request:', error);
+        return { success: false, error: 'Произошла ошибка' };
+      }
+    }
+    
+    async function rejectFriendRequest(requestId) {
+      try {
+        const response = await fetch('/chat/reject_friend_request/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({ request_id: requestId })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error rejecting friend request:', error);
+        return { success: false, error: 'Произошла ошибка' };
+      }
+    }
+    
+    async function cancelFriendRequest(requestId) {
+      try {
+        const response = await fetch('/chat/cancel_friend_request/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({ request_id: requestId })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error canceling friend request:', error);
+        return { success: false, error: 'Произошла ошибка' };
+      }
+    }
+    
+    async function removeFriend(username) {
+      try {
+        const response = await fetch('/chat/remove_friend/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: JSON.stringify({ username })
+        });
+        return await response.json();
+      } catch (error) {
+        console.error('Error removing friend:', error);
+        return { success: false, error: 'Произошла ошибка' };
+      }
+    }
+    
+    // Function to render search results
+    function renderSearchResults(users) {
+      const resultsContainer = document.getElementById('searchResults');
+      resultsContainer.innerHTML = '';
+      
+      if (users.length === 0) {
+        resultsContainer.innerHTML = `
+          <div class="no-results">
+            <i class="fas fa-search"></i>
+            <p>Пользователей не найдено</p>
+          </div>
+        `;
+        return;
+      }
+      
+      users.forEach(user => {
+        const userItem = document.createElement('div');
+        userItem.className = 'user-item';
+        userItem.innerHTML = `
+          <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&size=100&background=random" 
+               alt="${user.username}" class="user-avatar">
+          <div class="user-info">
+            <div class="username">${user.username}</div>
+            <div class="full-name">${user.first_name} ${user.last_name}</div>
+          </div>
+          <div class="user-actions">
+            ${renderUserActionButton(user)}
+          </div>
+        `;
+        resultsContainer.appendChild(userItem);
+        
+        // Add event handlers for buttons
+        const actionButton = userItem.querySelector('.action-btn');
+        if (actionButton) {
+          actionButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleActionButtonClick(actionButton, user);
+          });
+        }
+        
+        // Add click handler for user profile
+        userItem.addEventListener('click', () => showUserProfile(user));
+      });
+    }
+    
+    // Function to render the appropriate action button based on relationship
+    function renderUserActionButton(user) {
+      if (user.is_friend) {
+        return `<button class="btn btn-sm btn-outline-danger action-btn" data-action="remove-friend" data-username="${user.username}">
+                 <i class="fas fa-user-times"></i> Удалить из друзей
+               </button>`;
+      } else if (user.outgoing_request) {
+        return `<button class="btn btn-sm btn-secondary action-btn" data-action="cancel-request" 
+                data-request-id="${user.outgoing_request.id}" data-username="${user.username}">
+                 <i class="fas fa-times"></i> Отменить заявку
+               </button>`;
+      } else if (user.incoming_request) {
+        return `<div class="btn-group">
+                 <button class="btn btn-sm btn-success action-btn" data-action="accept-request" 
+                  data-request-id="${user.incoming_request.id}" data-username="${user.username}">
+                  <i class="fas fa-check"></i> Принять
+                 </button>
+                 <button class="btn btn-sm btn-danger action-btn" data-action="reject-request" 
+                  data-request-id="${user.incoming_request.id}" data-username="${user.username}">
+                  <i class="fas fa-times"></i> Отклонить
+                 </button>
+               </div>`;
+      } else {
+        return `<button class="btn btn-sm btn-primary action-btn" data-action="send-request" data-username="${user.username}">
+                 <i class="fas fa-user-plus"></i> Добавить в друзья
+               </button>`;
+      }
+    }
+    
+    // Function to handle action button clicks
+    async function handleActionButtonClick(button, user) {
+      const action = button.getAttribute('data-action');
+      const username = button.getAttribute('data-username');
+      const requestId = button.getAttribute('data-request-id');
+      
+      button.disabled = true;
+      
+      let result;
+      switch (action) {
+        case 'send-request':
+          result = await sendFriendRequest(username);
+          break;
+        case 'accept-request':
+          result = await acceptFriendRequest(requestId);
+          break;
+        case 'reject-request':
+          result = await rejectFriendRequest(requestId);
+          break;
+        case 'cancel-request':
+          result = await cancelFriendRequest(requestId);
+          break;
+        case 'remove-friend':
+          result = await removeFriend(username);
+          break;
+      }
+      
+      button.disabled = false;
+      
+      if (result && result.success) {
+        // Refresh data after successful action
+        refreshAllData();
+      } else {
+        alert(result?.error || 'Произошла ошибка');
+      }
+    }
+    
+    // Function to render friends list
+    function renderFriendsList(friends) {
+      const container = document.getElementById('friendsList');
+      container.innerHTML = '';
+      
+      if (friends.length === 0) {
+        container.innerHTML = `
+          <div class="no-friends">
+            <i class="fas fa-user-friends"></i>
+            <p>У вас пока нет друзей</p>
+            <small>Найдите пользователей и отправьте им заявку в друзья</small>
+          </div>
+        `;
+        return;
+      }
+      
+      friends.forEach(friend => {
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML = `
+          <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(friend.username)}&size=100&background=random" 
+               alt="${friend.username}" class="user-avatar">
+          <div class="user-info">
+            <div class="username">${friend.username}</div>
+            <div class="full-name">${friend.first_name} ${friend.last_name}</div>
+          </div>
+          <div class="user-actions">
+            <div class="btn-group">
+              <a href="/chat/${friend.username}/" class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-comment"></i> Чат
+              </a>
+              <button class="btn btn-sm btn-outline-danger action-btn" data-action="remove-friend" 
+               data-username="${friend.username}">
+                <i class="fas fa-user-times"></i>
+              </button>
+            </div>
+          </div>
+        `;
+        container.appendChild(item);
+        
+        // Add event handler for remove friend button
+        const removeBtn = item.querySelector('[data-action="remove-friend"]');
+        if (removeBtn) {
+          removeBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const username = removeBtn.getAttribute('data-username');
+            if (confirm(`Вы действительно хотите удалить ${username} из друзей?`)) {
+              removeBtn.disabled = true;
+              const result = await removeFriend(username);
+              if (result && result.success) {
+                refreshAllData();
+              } else {
+                alert(result?.error || 'Произошла ошибка');
+                removeBtn.disabled = false;
+              }
+            }
+          });
+        }
+        
+        // Add click handler for user profile
+        item.addEventListener('click', () => {
+          showUserProfile({
+            username: friend.username,
+            first_name: friend.first_name,
+            last_name: friend.last_name,
+            date_joined: friend.date_joined,
+            is_friend: true
+          });
+        });
+      });
+    }
+    
+    // Function to render friend requests
+    function renderFriendRequests(requests) {
+      // Render incoming requests
+      const incomingContainer = document.getElementById('incomingRequests');
+      incomingContainer.innerHTML = '';
+      
+      if (requests.incoming.length === 0) {
+        incomingContainer.innerHTML = `
+          <div class="no-requests">
+            <i class="fas fa-inbox"></i>
+            <p>Нет входящих заявок</p>
+          </div>
+        `;
+      } else {
+        requests.incoming.forEach(request => {
+          const item = document.createElement('div');
+          item.className = 'user-item';
+          item.setAttribute('data-request-id', request.id);
+          
+          item.innerHTML = `
+            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(request.sender.username)}&size=100&background=random" 
+                 alt="${request.sender.username}" class="user-avatar">
+            <div class="user-info">
+              <div class="username">${request.sender.username}</div>
+              <div class="full-name">${request.sender.first_name} ${request.sender.last_name}</div>
+              <small class="text-muted">Запрос отправлен: ${new Date(request.created_at).toLocaleDateString()}</small>
+            </div>
+            <div class="user-actions">
+              <div class="btn-group">
+                <button class="btn btn-sm btn-success action-btn" data-action="accept-request" data-request-id="${request.id}">
+                  <i class="fas fa-check"></i> Принять
+                </button>
+                <button class="btn btn-sm btn-danger action-btn" data-action="reject-request" data-request-id="${request.id}">
+                  <i class="fas fa-times"></i> Отклонить
+                </button>
+              </div>
+            </div>
+          `;
+          
+          incomingContainer.appendChild(item);
+          
+          // Add event handlers for buttons
+          const acceptBtn = item.querySelector('[data-action="accept-request"]');
+          const rejectBtn = item.querySelector('[data-action="reject-request"]');
+          
+          acceptBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const requestId = acceptBtn.getAttribute('data-request-id');
+            
+            acceptBtn.disabled = true;
+            rejectBtn.disabled = true;
+            
+            const result = await acceptFriendRequest(requestId);
+            if (result && result.success) {
+              refreshAllData();
+            } else {
+              alert(result?.error || 'Произошла ошибка');
+              acceptBtn.disabled = false;
+              rejectBtn.disabled = false;
+            }
+          });
+          
+          rejectBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const requestId = rejectBtn.getAttribute('data-request-id');
+            
+            acceptBtn.disabled = true;
+            rejectBtn.disabled = true;
+            
+            const result = await rejectFriendRequest(requestId);
+            if (result && result.success) {
+              refreshAllData();
+            } else {
+              alert(result?.error || 'Произошла ошибка');
+              acceptBtn.disabled = false;
+              rejectBtn.disabled = false;
+            }
+          });
+        });
+      }
+      
+      // Update badge
+      const badge = document.getElementById('incomingBadge');
+      if (requests.incoming.length > 0) {
+        badge.textContent = requests.incoming.length;
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+    
+    // Function to show user profile modal
+    function showUserProfile(user) {
+      const modal = new bootstrap.Modal(document.getElementById('userProfileModal'));
+      
+      // Set modal content
+      document.getElementById('modalUsername').textContent = user.username;
+      document.getElementById('modalAvatar').src = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.username)}&size=200&background=random`;
+      document.getElementById('modalFullName').textContent = `${user.first_name} ${user.last_name}`.trim() || user.username;
+      
+      const joinDate = user.date_joined ? new Date(user.date_joined).toLocaleDateString() : '';
+      document.getElementById('modalJoinDate').textContent = joinDate;
+      
+      // Set modal actions
+      const actionsContainer = document.getElementById('modalActions');
+      actionsContainer.innerHTML = '';
+      
+      if (user.is_friend) {
+        // Show chat and remove friend buttons
+        actionsContainer.innerHTML = `
+          <a href="/chat/${user.username}/" class="btn btn-primary">
+            <i class="fas fa-comment"></i> Открыть чат
+          </a>
+          <button class="btn btn-outline-danger" id="modalRemoveFriend">
+            <i class="fas fa-user-times"></i> Удалить из друзей
+          </button>
+        `;
+        
+        // Add event listener
+        document.getElementById('modalRemoveFriend').addEventListener('click', async () => {
+          if (confirm(`Вы действительно хотите удалить ${user.username} из друзей?`)) {
+            const result = await removeFriend(user.username);
+            if (result && result.success) {
+              modal.hide();
+              refreshAllData();
+            } else {
+              alert(result?.error || 'Произошла ошибка');
+            }
+          }
+        });
+      } else if (user.incoming_request) {
+        // Show accept/reject buttons
+        actionsContainer.innerHTML = `
+          <button class="btn btn-success" id="modalAcceptRequest">
+            <i class="fas fa-check"></i> Принять заявку
+          </button>
+          <button class="btn btn-danger" id="modalRejectRequest">
+            <i class="fas fa-times"></i> Отклонить заявку
+          </button>
+        `;
+        
+        // Add event listeners
+        document.getElementById('modalAcceptRequest').addEventListener('click', async () => {
+          const result = await acceptFriendRequest(user.incoming_request.id);
+          if (result && result.success) {
+            modal.hide();
+            refreshAllData();
+          } else {
+            alert(result?.error || 'Произошла ошибка');
+          }
+        });
+        
+        document.getElementById('modalRejectRequest').addEventListener('click', async () => {
+          const result = await rejectFriendRequest(user.incoming_request.id);
+          if (result && result.success) {
+            modal.hide();
+            refreshAllData();
+          } else {
+            alert(result?.error || 'Произошла ошибка');
+          }
+        });
+      } else if (user.outgoing_request) {
+        // Show cancel request button
+        actionsContainer.innerHTML = `
+          <button class="btn btn-secondary" id="modalCancelRequest">
+            <i class="fas fa-times"></i> Отменить заявку
+          </button>
+        `;
+        
+        // Add event listener
+        document.getElementById('modalCancelRequest').addEventListener('click', async () => {
+          const result = await cancelFriendRequest(user.outgoing_request.id);
+          if (result && result.success) {
+            modal.hide();
+            refreshAllData();
+          } else {
+            alert(result?.error || 'Произошла ошибка');
+          }
+        });
+      } else {
+        // Show add friend button
+        actionsContainer.innerHTML = `
+          <button class="btn btn-primary" id="modalAddFriend">
+            <i class="fas fa-user-plus"></i> Добавить в друзья
+          </button>
+        `;
+        
+        // Add event listener
+        document.getElementById('modalAddFriend').addEventListener('click', async () => {
+          const result = await sendFriendRequest(user.username);
+          if (result && result.success) {
+            modal.hide();
+            refreshAllData();
+          } else {
+            alert(result?.error || 'Произошла ошибка');
+          }
+        });
+      }
+      
+      // Add close button
+      actionsContainer.innerHTML += `
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+      `;
+      
+      // Show the modal
+      modal.show();
+    }
+    
+    // Function to refresh all data
+    async function refreshAllData() {
+      loadAndRenderFriends();
+      loadAndRenderFriendRequests();
+      
+      // Also refresh search results if there's a search query
+      const searchInput = document.getElementById('userSearchInput');
+      if (searchInput.value.trim()) {
+        performSearch(searchInput.value.trim());
+      }
+    }
+    
+    // Function to load and render friends
+    async function loadAndRenderFriends() {
+      const { friends } = await loadFriends();
+      renderFriendsList(friends);
+    }
+    
+    // Function to load and render friend requests
+    async function loadAndRenderFriendRequests() {
+      const requests = await loadFriendRequests();
+      renderFriendRequests(requests);
+    }
+    
+    // Function to perform search and render results
+    async function performSearch(query) {
+      if (!query) return;
+      
+      const searchResults = await searchUsers(query);
+      renderSearchResults(searchResults.users);
+    }
+    
+    // Event listener for search button
+    document.getElementById('searchBtn').addEventListener('click', () => {
+      const query = document.getElementById('userSearchInput').value.trim();
+      if (query) {
+        performSearch(query);
+      }
+    });
+    
+    // Event listener for search input (search as you type)
+    document.getElementById('userSearchInput').addEventListener('input', debounce(function(e) {
+      const query = e.target.value.trim();
+      if (query.length >= 2) { // Only search if at least 2 characters
+        performSearch(query);
+      } else if (query.length === 0) {
+        document.getElementById('searchResults').innerHTML = '';
+      }
+    }, 500)); // 500ms debounce
+    
+    // Event listener for Enter key in search input
+    document.getElementById('userSearchInput').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        document.getElementById('searchBtn').click();
+      }
+    });
+    
+    // Utility function to get CSRF token
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    
+    // Utility function to debounce input events
+    function debounce(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
+    
+    // Load initial data
+    refreshAllData();
+  });
+</script>
+{% endblock %}
